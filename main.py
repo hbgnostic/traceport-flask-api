@@ -52,7 +52,7 @@ def extract_functional_expenses(pdf_path):
 # 🖥️ Routes
 @app.route('/')
 def index():
-    return jsonify({"status": "Traceport Flask API is live"})
+    return render_template('index.html')
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
