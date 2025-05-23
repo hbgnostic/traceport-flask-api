@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Traceport Smart Guidance</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background-color: #F2F6F7;
+      padding: 2em;
+      color: #16243E;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+    .chart-container {
+      width: 300px;
+      margin: 2em auto;
+    }
+    .button-group {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 1.5em;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Traceport Smart Guidance</h1>
+
+  <form action="/analyze" method="post" enctype="multipart/form-data" style="text-align: center;">
+    <input type="file" name="file" accept=".pdf" required>
+    <button type="submit">Upload 990</button>
+  </form>
+
+  {% if totals %}
+    <section>
+      <h2>Functional Expense Breakdown (From Form 990)</h2>
+      <p style="text-align: center;">These allocations were extracted directly from your submitted Form 990. Review below:</p>
+
+      <ul>
+        <li><strong>Program Services:</strong> ${{ totals.program }} ({{ totals.program_pct }}%)</li>
+        <li><strong>Administrative:</strong> ${{ totals.admin }} ({{ totals.admin_pct }}%)</li>
+        <li><strong>Fundraising:</strong> ${{ totals.fundraising }} ({{ totals.fundraising_pct }}%)</li>
+      </ul>
+
+      <div id="chart-data"
+           data-program="{{ totals.program_pct }}"
+           data-admin="{{ totals.admin_pct }}"
+           data-fundraising="{{ totals.fundraising_pct }}">
+      </div>
+
+      <div class="chart-container">
+        <canvas id="functionalChart"></canvas>
+      </div>
+
+      <div class="button-group">
+        <form action="/confirm" method="post">
+          <button type="submit" style="background-color: #019AA8; color: white;">✅ Yes, use this allocation</button>
+        </form>
+        <button onclick="alert('Manual adjustment coming soon')" style="background-color: #E60000; color: white;">❌ No, I want to adjust</button>
+      </div>
+    </section>
+
+    <script>
+      const chartDiv = document.getElementById('chart-data');
+      const program = parseFloat(chartDiv.dataset.program);
+      const admin = parseFloat(chartDiv.dataset.admin);
+      const fundraising = parseFloat(chartDiv.dataset.fundraising);
+
+      const ctx = document.getElementById('functionalChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: ['Program Services', 'Administrative', 'Fundraising'],
+          datasets: [{
+            data: [program, admin, fundraising],
+            backgroundColor: ['#019AA8', '#C9E5E9', '#16243E'],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true
+        }
+      });
+    </script>
+  {% endif %}
+</body>
+</html>
