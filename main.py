@@ -3,7 +3,7 @@ import pdfplumber
 
 app = Flask(__name__)
 
-# 🧠 Function to extract functional expenses
+# Function to extract functional expenses
 def extract_functional_expenses(pdf_path):
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -49,13 +49,23 @@ def extract_functional_expenses(pdf_path):
         print("ERROR:", e)
         return None
 
-# 🖥️ Routes
+# Routes
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
+    uploaded_file = request.files['file']
+    if uploaded_file and uploaded_file.filename.endswith('.pdf'):
+        pdf_path = "uploaded_990.pdf"
+        uploaded_file.save(pdf_path)
+        totals = extract_functional_expenses(pdf_path)
+        return render_template('index.html', totals=totals)
+    return render_template('index.html', totals=None)
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze_api():
     uploaded_file = request.files['file']
     if uploaded_file and uploaded_file.filename.endswith('.pdf'):
         pdf_path = "uploaded_990.pdf"
