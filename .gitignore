@@ -1,0 +1,63 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+.ENV/
+.env/
+
+# Environment variables
+.env
+
+# Flask instance folder
+instance/
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Pytest
+.cache/
+*.cover
+coverage.xml
+htmlcov/
+
+# MyPy & Pyright
+.mypy_cache/
+.pyright/
+
+# Pylint
+pylint-report.txt
+pylint.log
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Test output
+nosetests.xml
+test-results/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+*.manifest
+*.spec
+
+# pip tools
+pip-log.txt
+pip-delete-this-directory.txt
+
+# PyInstaller
+*.spec
