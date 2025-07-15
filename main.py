@@ -17,6 +17,7 @@ app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
 CORS(app, resources={r"/api/*": {"origins": [
     "https://traceport-next-ui.vercel.app",
+    "https://traceport-next-ui-git-main-bridget-dorans-projects.vercel.app",
     "http://localhost:3000",
     "http://localhost:3001"
 ]}})
