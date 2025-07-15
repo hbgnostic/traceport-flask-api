@@ -180,6 +180,7 @@ def program_allocation():
         "total_pct": total_pct
     })
 
+# --- UPDATED: XML Analysis with Transparency Metrics ---
 @app.route('/api/xml-analyze', methods=['POST'])
 def process_xml():
     print("🔍 Received request at /api/xml-analyze")
@@ -190,7 +191,9 @@ def process_xml():
         return jsonify({"error": "No XML URL provided"}), 400
 
     try:
+        print(f"📄 Processing XML URL: {xml_url[:100]}...")
         result = extract_990_data(xml_url)
+        print("✅ XML processing completed successfully")
 
         # Combine mission, short programs, and schedule O into one big blob of text
         result["raw_text"] = "\n\n".join(result.get("mission_fields", []))
@@ -201,21 +204,43 @@ def process_xml():
         with open(os.path.join(UPLOAD_FOLDER, 'xml_data.json'), 'w') as f:
             json.dump(result, f)
 
+        # Extract functional expenses for backward compatibility
         expenses = result.get("functional_expenses", {})
         program = expenses.get("program_expenses", 0)
         admin = expenses.get("management_expenses", 0)
         fundraising = expenses.get("fundraising_expenses", 0)
         total = program + admin + fundraising or 1
 
-        return jsonify({
+        # Get transparency metrics
+        transparency_metrics = result.get("transparency_metrics", {})
+        
+        print("🌟 Transparency metrics extracted:")
+        print(f"   Tax Year: {transparency_metrics.get('tax_year')}")
+        print(f"   Program Ratio: {transparency_metrics.get('program_ratio')}%")
+        print(f"   Board Size: {transparency_metrics.get('board_size')}")
+        print(f"   Governance: {transparency_metrics.get('governance_rating')}")
+
+        # Return enhanced response with transparency metrics
+        response_data = {
+            # Original functional expense data (for backward compatibility)
             "program": program,
             "admin": admin,
             "fundraising": fundraising,
             "program_pct": round(100 * program / total),
             "admin_pct": round(100 * admin / total),
             "fundraising_pct": round(100 * fundraising / total),
-        })
+            
+            # NEW: Add transparency metrics
+            "transparency_metrics": transparency_metrics
+        }
+        
+        print("📊 Final response prepared with transparency metrics")
+        return jsonify(response_data)
+        
     except Exception as e:
+        print(f"❌ Error processing XML: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 # --- Run App ---
