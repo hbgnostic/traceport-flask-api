@@ -5,7 +5,8 @@ from datetime import datetime
 import re
 
 def extract_990_data(xml_url):
-    response = requests.get(xml_url)
+    # Add timeout to prevent hanging
+    response = requests.get(xml_url, timeout=30)
     response.raise_for_status()
     root = ET.fromstring(response.content)
     ns = {"irs": "http://www.irs.gov/efile"}

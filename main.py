@@ -213,6 +213,31 @@ def create_transparency_metrics_response(result):
         }
     }
 
+# --- Health Check Endpoint ---
+@app.route('/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint to verify API is running"""
+    try:
+        # Check if MetaTagEngine is loaded
+        meta_tag_status = "loaded" if meta_tag_engine else "fallback"
+
+        return jsonify({
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "version": "1.0.0",
+            "services": {
+                "meta_tag_engine": meta_tag_status,
+                "openai_client": "configured" if client else "not_configured"
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
 # --- Upload Endpoint ---
 @app.route('/api/upload-docs', methods=['POST'])
 def upload_docs():
@@ -378,8 +403,29 @@ def process_xml():
 
     try:
         print(f"📄 Processing XML URL: {xml_url[:100]}...")
-        result = extract_990_data(xml_url)
-        print("✅ XML processing completed successfully")
+
+        # Add timeout and better error handling for XML fetching
+        import signal
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError("XML processing timed out after 30 seconds")
+
+        # Set 30 second timeout
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(30)
+
+        try:
+            result = extract_990_data(xml_url)
+            signal.alarm(0)  # Cancel timeout
+            print("✅ XML processing completed successfully")
+        except TimeoutError as e:
+            signal.alarm(0)  # Cancel timeout
+            print(f"⏰ XML processing timeout: {e}")
+            return jsonify({"error": "XML processing timed out. Please try again or check the XML URL."}), 408
+        except Exception as e:
+            signal.alarm(0)  # Cancel timeout
+            print(f"❌ XML processing error: {e}")
+            return jsonify({"error": f"Failed to process XML: {str(e)}"}), 400
 
         # Combine mission, short programs, and schedule O into one big blob of text
         result["raw_text"] = "\n\n".join(result.get("mission_fields", []))
