@@ -11,6 +11,7 @@ from pdf_parser import extract_key_sections
 import hashlib
 import re
 from datetime import datetime
+from meta_tag_scanner import MetaTagEngine
 
 # Load environment variables
 load_dotenv()
@@ -30,6 +31,17 @@ client = OpenAI()
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# Initialize MetaTagEngine
+META_TAG_CSV_PATH = 'docs/Traceport Crosswalk NTEE Groups.csv'
+meta_tag_engine = None
+
+try:
+    meta_tag_engine = MetaTagEngine(META_TAG_CSV_PATH, max_tags=3, min_confidence=0.1)
+    print("✅ MetaTagEngine initialized successfully")
+except Exception as e:
+    print(f"⚠️ Failed to initialize MetaTagEngine: {e}")
+    print("📝 Will use fallback meta tag generation")
+
 # Helper functions for new JSON format
 def generate_program_id(program_name):
     """Generate a consistent program ID from program name"""
@@ -38,7 +50,18 @@ def generate_program_id(program_name):
     return f"prog_{hash_part}"
 
 def extract_meta_tags(program_description):
-    """Extract meta tags from program description using keyword matching"""
+    """Extract meta tags from program description using MetaTagEngine or fallback"""
+    global meta_tag_engine
+
+    # Use MetaTagEngine if available
+    if meta_tag_engine:
+        try:
+            return meta_tag_engine.scan_program(program_description)
+        except Exception as e:
+            print(f"⚠️ MetaTagEngine error: {e}")
+            # Fall through to fallback logic
+
+    # Fallback to original keyword matching
     keywords_map = {
         'education': ['education', 'school', 'learning', 'academic', 'curriculum', 'teaching'],
         'literacy': ['literacy', 'reading', 'writing', 'books', 'literature'],
@@ -61,7 +84,7 @@ def extract_meta_tags(program_description):
         if any(keyword in description_lower for keyword in keywords):
             tags.append(tag)
 
-    return tags[:3]  # Limit to 3 tags
+    return tags[:3] if tags else ["community"]  # Limit to 3 tags with fallback
 
 def create_functional_allocation_response(result):
     """Transform XML data to functional allocation format"""
@@ -76,11 +99,12 @@ def create_functional_allocation_response(result):
     tax_year = transparency.get("tax_year", datetime.now().year)
     fiscal_year_start = f"{tax_year}-01-01"
 
-    # Create program breakdown from short_programs
+    # Create program breakdown from multiple sources
     program_breakdown = []
     short_programs = result.get("short_programs", [])
 
     if short_programs:
+        # Use short_programs if available
         total_program_expenses = sum(p.get("expenses", 0) for p in short_programs if p.get("expenses"))
 
         for i, program_info in enumerate(short_programs):
@@ -101,7 +125,43 @@ def create_functional_allocation_response(result):
                     "metaTags": extract_meta_tags(program_name)
                 })
 
-    # If no programs found, create a default one
+    # If no short_programs, try to extract from mission fields
+    elif result.get("mission_fields"):
+        mission_fields = result.get("mission_fields", [])
+
+        # Filter mission fields to find actual program descriptions
+        program_descriptions = []
+        seen_descriptions = set()
+        for field in mission_fields:
+            if field and len(field.strip()) > 20:  # Skip short/incomplete entries
+                # Skip obvious non-program entries
+                skip_keywords = ['income', 'revenue', 'reimbursements', 'subscriptions', 'telephone', 'lease', 'misc']
+                if not any(keyword in field.lower() for keyword in skip_keywords):
+                    # Avoid duplicates
+                    field_clean = field.strip().lower()
+                    if field_clean not in seen_descriptions:
+                        seen_descriptions.add(field_clean)
+                        program_descriptions.append(field.strip())
+
+        if program_descriptions:
+            # Create programs from mission field descriptions
+            for i, description in enumerate(program_descriptions[:4]):  # Limit to 4 programs
+                # Create a shorter program name from the description
+                program_name = description[:60].strip()
+                if program_name.endswith('.'):
+                    program_name = program_name[:-1]
+
+                # Distribute percentages equally among programs
+                percentage = round(100 / len(program_descriptions))
+
+                program_breakdown.append({
+                    "programId": generate_program_id(program_name),
+                    "programName": program_name,
+                    "percentageOfProgram": percentage,
+                    "metaTags": extract_meta_tags(program_name)
+                })
+
+    # If still no programs found, create a default one
     if not program_breakdown:
         program_breakdown = [{
             "programId": "prog_default",
