@@ -8,6 +8,9 @@ from openai import OpenAI
 from pdfminer.high_level import extract_text
 from pdf_parser import extract_functional_expenses
 from pdf_parser import extract_key_sections
+import hashlib
+import re
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -26,6 +29,129 @@ client = OpenAI()
 
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Helper functions for new JSON format
+def generate_program_id(program_name):
+    """Generate a consistent program ID from program name"""
+    clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', program_name.lower())
+    hash_part = hashlib.md5(clean_name.encode()).hexdigest()[:6]
+    return f"prog_{hash_part}"
+
+def extract_meta_tags(program_description):
+    """Extract meta tags from program description using keyword matching"""
+    keywords_map = {
+        'education': ['education', 'school', 'learning', 'academic', 'curriculum', 'teaching'],
+        'literacy': ['literacy', 'reading', 'writing', 'books', 'literature'],
+        'youth': ['youth', 'children', 'kids', 'teen', 'adolescent', 'young'],
+        'science': ['science', 'stem', 'research', 'laboratory', 'scientific'],
+        'technology': ['technology', 'tech', 'computer', 'digital', 'software'],
+        'students': ['student', 'pupil', 'learner', 'scholar'],
+        'mentorship': ['mentor', 'guidance', 'counseling', 'coaching', 'support'],
+        'health': ['health', 'medical', 'wellness', 'healthcare', 'medicine'],
+        'community': ['community', 'neighborhood', 'local', 'civic', 'public'],
+        'environment': ['environment', 'green', 'sustainability', 'climate', 'conservation'],
+        'arts': ['arts', 'creative', 'cultural', 'music', 'theater', 'dance'],
+        'sports': ['sports', 'athletic', 'fitness', 'recreation', 'physical']
+    }
+
+    description_lower = program_description.lower()
+    tags = []
+
+    for tag, keywords in keywords_map.items():
+        if any(keyword in description_lower for keyword in keywords):
+            tags.append(tag)
+
+    return tags[:3]  # Limit to 3 tags
+
+def create_functional_allocation_response(result):
+    """Transform XML data to functional allocation format"""
+    expenses = result.get("functional_expenses", {})
+    program = expenses.get("program_expenses", 0)
+    admin = expenses.get("management_expenses", 0)
+    fundraising = expenses.get("fundraising_expenses", 0)
+    total = program + admin + fundraising or 1
+
+    # Get tax year from transparency metrics
+    transparency = result.get("transparency_metrics", {})
+    tax_year = transparency.get("tax_year", datetime.now().year)
+    fiscal_year_start = f"{tax_year}-01-01"
+
+    # Create program breakdown from short_programs
+    program_breakdown = []
+    short_programs = result.get("short_programs", [])
+
+    if short_programs:
+        total_program_expenses = sum(p.get("expenses", 0) for p in short_programs if p.get("expenses"))
+
+        for i, program_info in enumerate(short_programs):
+            if program_info.get("short"):
+                program_name = program_info["short"][:50]  # Truncate long names
+                program_expenses = program_info.get("expenses", 0)
+
+                # Calculate percentage of total program expenses
+                if total_program_expenses > 0:
+                    percentage = round((program_expenses / total_program_expenses) * 100)
+                else:
+                    percentage = round(100 / len(short_programs))  # Equal distribution
+
+                program_breakdown.append({
+                    "programId": generate_program_id(program_name),
+                    "programName": program_name,
+                    "percentageOfProgram": percentage,
+                    "metaTags": extract_meta_tags(program_name)
+                })
+
+    # If no programs found, create a default one
+    if not program_breakdown:
+        program_breakdown = [{
+            "programId": "prog_default",
+            "programName": "General Programs",
+            "percentageOfProgram": 100,
+            "metaTags": ["community"]
+        }]
+
+    return {
+        "fiscalYearStart": fiscal_year_start,
+        "functionalAllocation": {
+            "program": round(100 * program / total),
+            "admin": round(100 * admin / total),
+            "fundraising": round(100 * fundraising / total)
+        },
+        "programBreakdown": program_breakdown
+    }
+
+def create_transparency_metrics_response(result):
+    """Transform XML data to transparency metrics format"""
+    transparency = result.get("transparency_metrics", {})
+
+    return {
+        "source": transparency.get("source", "xml"),
+        "data_quality": transparency.get("data_quality", "complete"),
+        "last_updated": transparency.get("last_updated", datetime.now().isoformat()),
+        "transparency": {
+            "website_url": transparency.get("website_url", ""),
+            "has_website": transparency.get("has_website", False)
+        },
+        "governance": {
+            "board_size": transparency.get("board_size", 0),
+            "independent_members": transparency.get("independent_members", 0),
+            "governance_rating": transparency.get("governance_rating", "unknown"),
+            "has_conflict_policy": transparency.get("has_conflict_policy", False),
+            "has_whistleblower_policy": transparency.get("has_whistleblower_policy", False),
+            "has_retention_policy": transparency.get("has_retention_policy", False)
+        },
+        "tax_year": transparency.get("tax_year", 0),
+        "filing_date": transparency.get("filing_date", ""),
+        "filing_status": transparency.get("filing_status", "unknown"),
+        "financial_health": {
+            "total_revenue": transparency.get("total_revenue", 0),
+            "total_expenses": transparency.get("total_expenses", 0),
+            "net_assets": transparency.get("net_assets", 0),
+            "program_ratio": transparency.get("program_ratio", 0),
+            "admin_ratio": transparency.get("admin_ratio", 0),
+            "fundraising_ratio": transparency.get("fundraising_ratio", 0)
+        }
+    }
 
 # --- Upload Endpoint ---
 @app.route('/api/upload-docs', methods=['POST'])
@@ -180,7 +306,7 @@ def program_allocation():
         "total_pct": total_pct
     })
 
-# --- UPDATED: XML Analysis with Transparency Metrics ---
+# --- UPDATED: XML Analysis with New Format ---
 @app.route('/api/xml-analyze', methods=['POST'])
 def process_xml():
     print("🔍 Received request at /api/xml-analyze")
@@ -204,39 +330,24 @@ def process_xml():
         with open(os.path.join(UPLOAD_FOLDER, 'xml_data.json'), 'w') as f:
             json.dump(result, f)
 
-        # Extract functional expenses for backward compatibility
-        expenses = result.get("functional_expenses", {})
-        program = expenses.get("program_expenses", 0)
-        admin = expenses.get("management_expenses", 0)
-        fundraising = expenses.get("fundraising_expenses", 0)
-        total = program + admin + fundraising or 1
+        # Create the two new response formats
+        functional_allocation = create_functional_allocation_response(result)
+        transparency_metrics = create_transparency_metrics_response(result)
 
-        # Get transparency metrics
-        transparency_metrics = result.get("transparency_metrics", {})
-        
-        print("🌟 Transparency metrics extracted:")
-        print(f"   Tax Year: {transparency_metrics.get('tax_year')}")
-        print(f"   Program Ratio: {transparency_metrics.get('program_ratio')}%")
-        print(f"   Board Size: {transparency_metrics.get('board_size')}")
-        print(f"   Governance: {transparency_metrics.get('governance_rating')}")
+        print("🌟 New format responses created:")
+        print(f"   Fiscal Year: {functional_allocation['fiscalYearStart']}")
+        print(f"   Program Breakdown: {len(functional_allocation['programBreakdown'])} programs")
+        print(f"   Governance Rating: {transparency_metrics['governance']['governance_rating']}")
 
-        # Return enhanced response with transparency metrics
+        # Return the new two-blob format
         response_data = {
-            # Original functional expense data (for backward compatibility)
-            "program": program,
-            "admin": admin,
-            "fundraising": fundraising,
-            "program_pct": round(100 * program / total),
-            "admin_pct": round(100 * admin / total),
-            "fundraising_pct": round(100 * fundraising / total),
-            
-            # NEW: Add transparency metrics
-            "transparency_metrics": transparency_metrics
+            "functionalAllocation": functional_allocation,
+            "transparencyMetrics": transparency_metrics
         }
-        
-        print("📊 Final response prepared with transparency metrics")
+
+        print("📊 Final response prepared with new format")
         return jsonify(response_data)
-        
+
     except Exception as e:
         print(f"❌ Error processing XML: {str(e)}")
         import traceback
